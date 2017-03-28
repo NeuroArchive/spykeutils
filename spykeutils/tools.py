@@ -1,5 +1,9 @@
 import neo
-import neo.description
+try:
+    import neo.description
+    HAS_DESCRIPTION = True
+except ImportError:
+    HAS_DESCRIPTION = False
 import quantities as pq
 import scipy as sp
 import _scipy_quantities as spq
@@ -115,6 +119,9 @@ def minimum_spike_train_interval(
             t_start = max(t_start, max((t.t_start for t in st)))
             t_stop = min(t_stop, min((t.t_stop for t in st)))
 
+    if t_stop == sp.inf * pq.s:
+        t_stop = t_start
+
     return t_start, t_stop
 
 
@@ -214,8 +221,19 @@ def remove_from_hierarchy(obj, remove_half_orphans=True):
     classname = type(obj).__name__
 
     # Parent for arbitrary object
-    if classname in neo.description.many_to_one_relationship:
-        for n in neo.description.many_to_one_relationship[classname]:
+    if HAS_DESCRIPTION:
+        if classname in neo.description.many_to_one_relationship:
+            for n in neo.description.many_to_one_relationship[classname]:
+                p = getattr(obj, n.lower())
+                if p is None:
+                    continue
+                l = getattr(p, classname.lower() + 's', ())
+                try:
+                    l.remove(obj)
+                except ValueError:
+                    pass
+    else:
+        for n in obj._single_parent_objects:
             p = getattr(obj, n.lower())
             if p is None:
                 continue
@@ -289,7 +307,7 @@ def extract_spikes(train, signals, length, align_time):
 
     # Find extraction epochs
     st_ok = (st >= 0) * (st < end - cut_samples)
-    epochs = sp.vstack((st[st_ok], st[st_ok] + cut_samples)).T
+    epochs = sp.vstack((st[st_ok], st[st_ok] + cut_samples)).T.astype(sp.int64)
 
     nspikes = epochs.shape[0]
     if not nspikes:
